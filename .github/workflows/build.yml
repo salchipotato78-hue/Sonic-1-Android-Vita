@@ -41,7 +41,7 @@ jobs:
           echo "/usr/local/vitasdk/bin" >> "$GITHUB_PATH"
 
       - name: Configurar CMake
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 
       - name: Compilar VPK
         run: cmake --build build -j"$(nproc)"
@@ -52,3 +52,12 @@ jobs:
           name: sonic1_vita
           path: build/*.vpk
           if-no-files-found: error
+
+      - name: Subir ELF con símbolos para depurar
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonic1_vita_debug_symbols
+          path: |
+            build/so_loader
+            build/*.velf
+          if-no-files-found: warn
