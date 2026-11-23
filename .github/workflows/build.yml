@@ -28,7 +28,6 @@ jobs:
       - name: Instalar VitaSDK-softfp con vdpm
         if: steps.vitasdk-cache.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /usr/local/vitasdk && sudo chown "$USER" /usr/local/vitasdk
           git clone --depth 1 https://github.com/vitasdk-softfp/vdpm "$RUNNER_TEMP/vdpm"
           cd "$RUNNER_TEMP/vdpm"
           export VITASDK=/usr/local/vitasdk
