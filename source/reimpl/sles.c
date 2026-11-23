@@ -22,6 +22,10 @@
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 
+#ifndef SL_API
+#define SL_API
+#endif
+
 #include <pthread.h>
 #include <string.h>
 #include <psp2/audioout.h>
