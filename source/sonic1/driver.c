@@ -123,9 +123,10 @@ void sonic1_shutdown(void) {
         p_shutdown(g_env, g_activity);
 }
 
-/* Índices de SetKeyData (byte de estado en el struct del motor, offsets 0..7).
- * Orden supuesto (RSDKv4 móvil): up, down, left, right, A, B, C, start.
- * Verificar en hardware: si un botón no responde, revisar este mapa. */
+/* Índices de SetKeyData, verificados con el bytecode de Sonic1Activity.onKeyDown
+ * (sparse-switch sobre keycode -> SetKeyData(índice, estado)):
+ *   0 up, 1 down, 2 left, 3 right, 4 A (salto), 5 B, 6 C, 7 start.
+ * Estado: 1 = pulsado, 0 = soltado (onKeyUp). */
 static int32_t key_to_index(int32_t keycode) {
     switch (keycode) {
         case 19:  return 0; /* AKEYCODE_DPAD_UP */
@@ -135,6 +136,7 @@ static int32_t key_to_index(int32_t keycode) {
         case 96:  return 4; /* AKEYCODE_BUTTON_A (Cross, salto) */
         case 97:  return 5; /* AKEYCODE_BUTTON_B (Circle) */
         case 99:  return 6; /* AKEYCODE_BUTTON_X (Square) */
+        case 100: return 6; /* AKEYCODE_BUTTON_Y (Triangle), también C en el original */
         case 108: return 7; /* AKEYCODE_BUTTON_START */
         default:  return -1;
     }
@@ -149,7 +151,12 @@ void sonic1_key(int32_t keycode, int32_t action) {
 }
 
 void sonic1_touch(int32_t id, float x, float y, int32_t action) {
-    /* ControlsAction: UP = 0, DOWN = 1, MOVE = 2 */
+    /* Igual que Sonic1Activity.onTouchEvent (switch sobre MotionEvent.getAction):
+     * ACTION_DOWN/POINTER_DOWN -> AddTouch(x, y, id)
+     * ACTION_UP/POINTER_UP     -> RemoveTouch(id)
+     * ACTION_MOVE              -> SetTouch(x, y, id) por cada puntero
+     * ControlsAction: UP = 0, DOWN = 1, MOVE = 2. Las coordenadas van en
+     * píxeles del surface (960x544), como las pasa el Java original. */
     if (action == 1 && p_touch_add)
         p_touch_add(g_env, g_activity, x, y, id);
     else if (action == 0 && p_touch_remove)
