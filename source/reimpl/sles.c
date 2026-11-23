@@ -27,6 +27,8 @@
 #endif
 
 #include <pthread.h>
+#include <stdio.h>
+#include <psp2/io/fcntl.h>
 #include <string.h>
 #include <psp2/audioout.h>
 #include <psp2/kernel/threadmgr.h>
@@ -113,6 +115,20 @@ static void rs_init(uint32_t in_rate) {
         in_rate = SLES_OUT_RATE;
     }
     rs_step = (uint32_t)(((uint64_t)in_rate << 16) / SLES_OUT_RATE);
+    l_info("sles: el motor pide %u Hz, remuestreo a %u Hz", (unsigned)in_rate, SLES_OUT_RATE);
+
+    /* Diagnóstico: escribe la frecuencia pedida en un archivo legible desde VitaShell. */
+    {
+        char dbg[128];
+        int n = snprintf(dbg, sizeof(dbg), "motor=%u Hz salida=%u Hz step=%u\n",
+                         (unsigned)in_rate, (unsigned)SLES_OUT_RATE, (unsigned)rs_step);
+        SceUID fd = sceIoOpen(DATA_PATH "audio_debug.txt",
+                              SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+        if (fd >= 0) {
+            sceIoWrite(fd, dbg, (SceSize)n);
+            sceIoClose(fd);
+        }
+    }
     rs_pos = 0;
     rs_have = 0;
 }
