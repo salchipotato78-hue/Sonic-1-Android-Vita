@@ -7,25 +7,41 @@ on:
 jobs:
   vpk:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Instalar VitaSDK-softfp
-        # TODO: confirmar el método oficial en https://github.com/vitasdk-softfp
-        # y fijar la versión. Este paso debe dejar $VITASDK definido.
-        env:
-          VITASDK_PREFIX: ${{ runner.temp }}/vitasdk
+      - name: Dependencias del host
         run: |
-          echo "VITASDK=$VITASDK_PREFIX" >> "$GITHUB_ENV"
-          echo "TODO: instalar VitaSDK-softfp en $VITASDK_PREFIX"
-          exit 1
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake git wget p7zip-full tar patch make
 
-      - name: Instalar dependencias del host
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Cachear VitaSDK-softfp
+        id: vitasdk-cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/vitasdk
+          key: vitasdk-softfp-${{ hashFiles('.github/workflows/build.yml') }}
 
-      - name: Configurar
+      - name: Instalar VitaSDK-softfp con vdpm
+        if: steps.vitasdk-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p /usr/local/vitasdk && sudo chown "$USER" /usr/local/vitasdk
+          git clone --depth 1 https://github.com/vitasdk-softfp/vdpm "$RUNNER_TEMP/vdpm"
+          cd "$RUNNER_TEMP/vdpm"
+          export VITASDK=/usr/local/vitasdk
+          export PATH="$VITASDK/bin:$PATH"
+          ./bootstrap-vitasdk.sh
+          ./install-all.sh
+
+      - name: Configurar entorno de VitaSDK
+        run: |
+          echo "VITASDK=/usr/local/vitasdk" >> "$GITHUB_ENV"
+          echo "/usr/local/vitasdk/bin" >> "$GITHUB_PATH"
+
+      - name: Configurar CMake
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Compilar VPK
