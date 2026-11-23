@@ -31,6 +31,10 @@ int main() {
     }
 
     while (1) {
+#ifndef NDK_PORT
+        /* Sin esto no se leen botones ni touch: controls_poll() nunca se llamaba. */
+        controls_poll();
+#endif
         sonic1_frame();
         gl_swap();
     }
