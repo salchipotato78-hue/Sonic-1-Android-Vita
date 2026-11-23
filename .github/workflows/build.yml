@@ -1,0 +1,39 @@
+name: build-vpk
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  vpk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Instalar VitaSDK-softfp
+        # TODO: confirmar el método oficial en https://github.com/vitasdk-softfp
+        # y fijar la versión. Este paso debe dejar $VITASDK definido.
+        env:
+          VITASDK_PREFIX: ${{ runner.temp }}/vitasdk
+        run: |
+          echo "VITASDK=$VITASDK_PREFIX" >> "$GITHUB_ENV"
+          echo "TODO: instalar VitaSDK-softfp en $VITASDK_PREFIX"
+          exit 1
+
+      - name: Instalar dependencias del host
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Configurar
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compilar VPK
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Subir VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonic1_vita
+          path: build/*.vpk
+          if-no-files-found: error
