@@ -1,5 +1,5 @@
 /*
- * Driver JNI para libsonic1native.so (Sonic 1, Android 2013).
+ * Driver JNI para libRetroEngineJNI.so (Sonic 1, Android v3.0.0, libRetroEngineJNI.so).
  *
  * Firmas verificadas desensamblando las funciones Java_com_sega_sonic1_* (ARMv7):
  *   Sonic1View_SetAPKDirectory(env, obj, jstring path, int32 (no usado), uint8 flag)
@@ -53,7 +53,7 @@ static JObj       g_view     = fake_view_obj;
 static JObj       g_renderer = fake_renderer_obj;
 static JObj       g_activity = fake_activity_obj;
 
-#define SYM(cls, fn) ((void *)so_symbol(g_mod, "Java_com_sega_sonic1_" cls "_" fn))
+#define SYM(fn) ((void *)so_symbol(g_mod, "Java_com_christianwhitehead_rsdk_RetroEngine_" fn))
 
 /* jstring real: el .so llama a GetStringUTFChars sobre él, así que debe salir
  * de la tabla de FalsoJNI (NewStringUTF), no ser un char* directo. */
@@ -73,26 +73,26 @@ static fn_int1 p_set_language, p_set_online, p_set_mode;
 static fn_str  p_set_version;
 
 static int resolve_all(void) {
-    p_set_language = SYM("Sonic1Activity", "SetGameLanguage");
-    p_set_online  = SYM("Sonic1Activity", "SetEngineOnlineCapabilities");
-    p_set_mode    = SYM("Sonic1Activity", "SetGameMode");
-    p_set_version = SYM("Sonic1Activity", "SetVersionNumber");
-    p_set_apk     = SYM("Sonic1View", "SetAPKDirectory");
-    p_set_save    = SYM("Sonic1View", "SetSaveFileName");
-    p_set_dims    = SYM("Sonic1View", "SetScreenDimensions");
-    p_startup     = SYM("Sonic1Renderer", "StartupRetroEngine");
-    p_create_audio = SYM("Sonic1Renderer", "CreateAudioBufferQueue");
-    p_start_audio = SYM("Sonic1Renderer", "StartAudioBufferQueue");
-    p_frame       = SYM("Sonic1Renderer", "ProcessMainLoop");
-    p_shutdown    = SYM("Sonic1Activity", "ShutdownRetroEngine");
-    p_key         = SYM("Sonic1Activity", "SetKeyData");
-    p_touch_set   = SYM("Sonic1Activity", "SetTouch");
-    p_touch_add   = SYM("Sonic1Activity", "AddTouch");
-    p_touch_remove = SYM("Sonic1Activity", "RemoveTouch");
-    p_touch_clear = SYM("Sonic1Activity", "ClearTouchData");
+    p_set_language = SYM("setGameLanguage");
+    p_set_online  = SYM("setOnlineCapabilities");
+    p_set_mode    = SYM("setGameMode");
+    p_set_version = SYM("setVersionNumber");
+    p_set_apk     = SYM("setAPKDirectory");
+    p_set_save    = SYM("setSaveFileName");
+    p_set_dims    = SYM("setScreenDimensions");
+    p_startup     = SYM("startup");
+    p_create_audio = SYM("createAudioBufferQueue");
+    p_start_audio = SYM("startAudioBufferQueue");
+    p_frame       = SYM("processMainLoop");
+    p_shutdown    = SYM("shutdown");
+    p_key         = SYM("setKeyData");
+    p_touch_set   = SYM("setTouch");
+    p_touch_add   = SYM("addTouch");
+    p_touch_remove = SYM("removeTouch");
+    p_touch_clear = SYM("clearTouchData");
 
     if (!p_set_apk || !p_set_save || !p_set_dims || !p_startup || !p_frame) {
-        l_fatal("Faltan símbolos JNI obligatorios de libsonic1native.so (ver docs/SYMBOLS.md).");
+        l_fatal("Faltan símbolos JNI obligatorios de libRetroEngineJNI.so (ver docs/SYMBOLS.md).");
         return -1;
     }
     return 0;
@@ -113,7 +113,7 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
      *   SetVersionNumber("1.0.0") -> versionName del APK.
      *   SetEngineOnlineCapabilities(0). */
     if (p_set_language) p_set_language(g_env, g_activity, 0);
-    if (p_set_version)  p_set_version(g_env, g_activity, make_jstring("1.0.0"));
+    if (p_set_version)  p_set_version(g_env, g_activity, make_jstring("3.0.0"));
     if (p_set_online)   p_set_online(g_env, g_activity, 0);
 
     /* data_file es el archivo RSDK completo (p. ej. DATA_PATH "Data.rsdk.xmf"). */
