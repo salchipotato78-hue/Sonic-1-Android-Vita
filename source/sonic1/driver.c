@@ -64,7 +64,7 @@ static JStr make_jstring(const char *s) {
 static fn_apk  p_set_apk;
 static fn_str  p_set_save;
 static fn_int2 p_set_dims;
-static fn_void p_startup, p_create_audio, p_start_audio, p_frame, p_shutdown, p_touch_clear;
+static fn_void p_bind_env, p_startup, p_create_audio, p_start_audio, p_frame, p_shutdown, p_touch_clear;
 static fn_key  p_key;
 static fn_touch p_touch_set, p_touch_add;
 static fn_id   p_touch_remove;
@@ -80,6 +80,7 @@ static int resolve_all(void) {
     p_set_apk     = SYM("setAPKDirectory");
     p_set_save    = SYM("setSaveFileName");
     p_set_dims    = SYM("setScreenDimensions");
+    p_bind_env    = SYM("bindJavaENV");
     p_startup     = SYM("startup");
     p_create_audio = SYM("createAudioBufferQueue");
     p_start_audio = SYM("startAudioBufferQueue");
@@ -106,6 +107,11 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
     /* jni_init() ya corrió en soloader_init_all(), así que &jni es válido aquí.
      * Sin esto el .so hace ldr [NULL] en Java_..._SetAPKDirectory (crash 0x98010864). */
     g_env = &jni;
+
+    /* v3.0.0 guarda el JNIEnv en un global interno (javaEnv) con bindJavaENV.
+     * Sin esta llamada el .so hace (*javaEnv)->GetObjectClass con javaEnv == NULL:
+     * crash en ldr r2,[r0] con r0 = 0 (core: PC 0x98012cd4). */
+    if (p_bind_env) p_bind_env(g_env, g_activity);
 
     /* Mismo orden que Sonic1Activity.onCreate:
      *   SetGameLanguage(0) -> 0 = inglés. El Java elige el índice por el string de
