@@ -52,8 +52,24 @@ void controls_handler_touch(int32_t id, float x, float y, ControlsAction action)
     sonic1_touch(id, x, y, (int32_t)action);
 }
 
+/* Stick izquierdo -> D-pad. Envía DOWN/UP solo cuando cambia la dirección. */
+static void analog_dir(int32_t keycode, int want, int *state) {
+    if (want != *state) {
+        *state = want;
+        sonic1_key(keycode, want ? CONTROLS_ACTION_DOWN : CONTROLS_ACTION_UP);
+    }
+}
+
 void controls_handler_analog(ControlsStickId which, float x, float y, ControlsAction action) {
-    /* Sin implementar: el juego original de Android usa táctil. */
-    (void)which; (void)x; (void)y; (void)action;
+    static int st_up, st_down, st_left, st_right;
+    (void)action; /* el estado se calcula en cada lectura, no por evento */
+    if (which != CONTROLS_STICK_LEFT)
+        return; /* el stick derecho no se usa en el juego */
+
+    const float th = 0.5f;
+    analog_dir(AKEYCODE_DPAD_UP,    y < -th, &st_up);
+    analog_dir(AKEYCODE_DPAD_DOWN,  y >  th, &st_down);
+    analog_dir(AKEYCODE_DPAD_LEFT,  x < -th, &st_left);
+    analog_dir(AKEYCODE_DPAD_RIGHT, x >  th, &st_right);
 }
 #endif
