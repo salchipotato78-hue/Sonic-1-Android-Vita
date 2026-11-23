@@ -102,7 +102,8 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
     /* data_file es el archivo RSDK completo (p. ej. DATA_PATH "Data.rsdk.xmf"). */
     p_set_apk(g_env, g_view, make_jstring(data_file), 0, 0);
     p_set_save(g_env, g_view, make_jstring(save_file));
-    p_set_dims(g_env, g_view, 480, 272); /* TODO: confirmar resolución de la Vita */
+    /* Resolución real del surface de la Vita. El Java original pasa el tamaño del view. */
+    p_set_dims(g_env, g_view, 960, 544);
 
     p_startup(g_env, g_renderer);
     if (p_create_audio) p_create_audio(g_env, g_renderer);
@@ -122,19 +123,37 @@ void sonic1_shutdown(void) {
         p_shutdown(g_env, g_activity);
 }
 
-void sonic1_key(int32_t index, int32_t state) {
-    /* index: 0..7 según el switch de SetKeyData. El mapeo desde ControlsAction
-     * y keycodes de Android aún no está verificado. */
-    if (p_key)
-        p_key(g_env, g_activity, index, state);
+/* Índices de SetKeyData (byte de estado en el struct del motor, offsets 0..7).
+ * Orden supuesto (RSDKv4 móvil): up, down, left, right, A, B, C, start.
+ * Verificar en hardware: si un botón no responde, revisar este mapa. */
+static int32_t key_to_index(int32_t keycode) {
+    switch (keycode) {
+        case 19:  return 0; /* AKEYCODE_DPAD_UP */
+        case 20:  return 1; /* AKEYCODE_DPAD_DOWN */
+        case 21:  return 2; /* AKEYCODE_DPAD_LEFT */
+        case 22:  return 3; /* AKEYCODE_DPAD_RIGHT */
+        case 96:  return 4; /* AKEYCODE_BUTTON_A (Cross, salto) */
+        case 97:  return 5; /* AKEYCODE_BUTTON_B (Circle) */
+        case 99:  return 6; /* AKEYCODE_BUTTON_X (Square) */
+        case 108: return 7; /* AKEYCODE_BUTTON_START */
+        default:  return -1;
+    }
+}
+
+void sonic1_key(int32_t keycode, int32_t action) {
+    int32_t idx = key_to_index(keycode);
+    if (idx < 0 || !p_key)
+        return;
+    /* action: CONTROLS_ACTION_UP = 0, CONTROLS_ACTION_DOWN = 1 -> estado 0/1 */
+    p_key(g_env, g_activity, idx, action == 1 ? 1 : 0);
 }
 
 void sonic1_touch(int32_t id, float x, float y, int32_t action) {
-    /* TODO: confirmar qué valores de action corresponden a press/move/release. */
-    if (action == 0 && p_touch_add)
+    /* ControlsAction: UP = 0, DOWN = 1, MOVE = 2 */
+    if (action == 1 && p_touch_add)
         p_touch_add(g_env, g_activity, x, y, id);
-    else if (action == 1 && p_touch_remove)
+    else if (action == 0 && p_touch_remove)
         p_touch_remove(g_env, g_activity, id);
-    else if (p_touch_set)
+    else if (action == 2 && p_touch_set)
         p_touch_set(g_env, g_activity, x, y, id);
 }
