@@ -1,5 +1,5 @@
 /*
- * Minimal OpenSL ES sobre sceAudioOut, para libsonic1native.so.
+ * Minimal OpenSL ES sobre sceAudioOut, para libRetroEngineJNI.so (v3.0.0).
  *
  * El .so importa de libOpenSLES.so: slCreateEngine, SL_IID_ENGINE,
  * SL_IID_ANDROIDSIMPLEBUFFERQUEUE, SL_IID_BUFFERQUEUE, SL_IID_PLAY y
@@ -93,12 +93,56 @@ static struct SlesPlayItf g_play_itf;
 static struct SlesBqItf g_bq_itf;
 static struct SlesVolItf g_vol_itf;
 
-static int sample_rate_ok(SLuint32 hz) {
-    static const SLuint32 ok[] = { 48000, 44100, 32000, 24000, 16000, 12000, 11025, 8000 };
-    for (unsigned i = 0; i < sizeof(ok) / sizeof(ok[0]); i++)
-        if (ok[i] == hz) return 1;
-    return 0;
+/* ---- RESAMPLER BEGIN ---- */
+/* El motor puede pedir cualquier frecuencia (p. ej. 22050 Hz); el puerto de Vita se abre
+ * siempre a 48000 Hz y aquí se convierte por interpolación lineal. Sin esto, la muestra
+ * se reproduce a 48000 Hz y suena acelerada y aguda.
+ * rs_buf guarda frames estéreo 16 bits de entrada; rs_pos es la posición fraccionaria
+ * (Q16) del siguiente frame de salida dentro de rs_buf. */
+#define SLES_OUT_RATE      48000u
+#define SLES_RS_BUF_FRAMES (SLES_GRAIN_FRAMES * 2 + 8)
+
+static int16_t rs_buf[SLES_RS_BUF_FRAMES * 2];
+static uint32_t rs_have;   /* frames válidos en rs_buf */
+static uint32_t rs_pos;    /* Q16, en [0, 65536) */
+static uint32_t rs_step;   /* Q16: frames de entrada por frame de salida */
+
+static void rs_init(uint32_t in_rate) {
+    if (in_rate == 0 || in_rate > 96000) {
+        l_warn("sles: frecuencia %u fuera de rango, uso 48000 Hz", (unsigned)in_rate);
+        in_rate = SLES_OUT_RATE;
+    }
+    rs_step = (uint32_t)(((uint64_t)in_rate << 16) / SLES_OUT_RATE);
+    rs_pos = 0;
+    rs_have = 0;
 }
+
+/* Frames de entrada necesarios para producir un grano de salida. */
+static uint32_t rs_frames_needed(void) {
+    uint64_t last = ((uint64_t)rs_pos + (uint64_t)(SLES_GRAIN_FRAMES - 1) * rs_step) >> 16;
+    return (uint32_t)last + 2;
+}
+
+/* Produce SLES_GRAIN_FRAMES frames estéreo en out y descarta los frames de entrada ya usados.
+ * Requiere rs_have >= rs_frames_needed(). */
+static void rs_output(int16_t *out) {
+    for (uint32_t k = 0; k < SLES_GRAIN_FRAMES; k++) {
+        uint64_t t = (uint64_t)rs_pos + (uint64_t)k * rs_step;
+        uint32_t i0 = (uint32_t)(t >> 16);
+        int64_t  f  = (int64_t)(t & 0xFFFF);
+        for (int c = 0; c < 2; c++) {
+            int32_t a = rs_buf[i0 * 2 + c];
+            int32_t b = rs_buf[(i0 + 1) * 2 + c];
+            out[k * 2 + c] = (int16_t)(a + (int32_t)(((int64_t)(b - a) * f) >> 16));
+        }
+    }
+    uint64_t total = (uint64_t)rs_pos + (uint64_t)SLES_GRAIN_FRAMES * rs_step;
+    uint32_t consume = (uint32_t)(total >> 16);
+    memmove(rs_buf, rs_buf + consume * 2, (rs_have - consume) * 2 * sizeof(int16_t));
+    rs_have -= consume;
+    rs_pos = (uint32_t)(total & 0xFFFF);
+}
+/* ---- RESAMPLER END ---- */
 
 /* ---- Hilo de audio ---- */
 static void fire_callback(void) {
@@ -124,10 +168,51 @@ static int pop_buffer(void) {
     return got;
 }
 
+/* Saca `need` bytes PCM del motor; rellena con silencio si la cola está vacía. */
+static void pull_bytes(uint8_t *dst, SLuint32 need) {
+    SLuint32 got = 0;
+    while (got < need && g_sink.run) {
+        if (g_sink.cur_off >= g_sink.cur_size) {
+            if (!pop_buffer()) {
+                /* Cola vacía: pedir más al motor y reintentar una vez. */
+                fire_callback();
+                if (!pop_buffer())
+                    break;   /* sin datos: rellenar con silencio */
+            }
+        }
+        SLuint32 avail = g_sink.cur_size - g_sink.cur_off;
+        SLuint32 take = need - got < avail ? need - got : avail;
+        memcpy(dst + got, g_sink.cur_ptr + g_sink.cur_off, take);
+        got += take;
+        g_sink.cur_off += take;
+        if (g_sink.cur_off >= g_sink.cur_size) {
+            /* Buffer terminado: avisar al motor para que encole el siguiente. */
+            fire_callback();
+        }
+    }
+    if (got < need)
+        memset(dst + got, 0, need - got);
+}
+
+/* Saca n_frames del motor y los deja como estéreo 16 bits en dst. */
+static void pull_frames(int16_t *dst, uint32_t n_frames, SLuint32 channels) {
+    static uint8_t raw[SLES_RS_BUF_FRAMES * 2 * 2];
+    pull_bytes(raw, n_frames * channels * 2);
+    const int16_t *src = (const int16_t *)raw;
+    for (uint32_t i = 0; i < n_frames; i++) {
+        if (channels == 1) {
+            dst[2 * i]     = src[i];
+            dst[2 * i + 1] = src[i];
+        } else {
+            dst[2 * i]     = src[2 * i];
+            dst[2 * i + 1] = src[2 * i + 1];
+        }
+    }
+}
+
 static void *audio_thread(void *arg) {
     (void)arg;
     const SLuint32 channels = g_sink.channels ? g_sink.channels : 2;
-    const SLuint32 bytes_per_frame = channels * 2;   /* el motor entrega 16 bits */
     static int16_t out[SLES_GRAIN_FRAMES * 2];
 
     while (g_sink.run) {
@@ -136,42 +221,12 @@ static void *audio_thread(void *arg) {
             continue;
         }
 
-        SLuint32 need = SLES_GRAIN_FRAMES * bytes_per_frame;
-        SLuint32 got = 0;
-        uint8_t  tmp[SLES_GRAIN_FRAMES * 2 * 2];
-
-        while (got < need && g_sink.run) {
-            if (g_sink.cur_off >= g_sink.cur_size) {
-                if (!pop_buffer()) {
-                    /* Cola vacía: pedir más al motor y reintentar una vez. */
-                    fire_callback();
-                    if (!pop_buffer())
-                        break;   /* sin datos: rellenar con silencio */
-                }
-            }
-            SLuint32 avail = g_sink.cur_size - g_sink.cur_off;
-            SLuint32 take = need - got < avail ? need - got : avail;
-            memcpy(tmp + got, g_sink.cur_ptr + g_sink.cur_off, take);
-            got += take;
-            g_sink.cur_off += take;
-            if (g_sink.cur_off >= g_sink.cur_size) {
-                /* Buffer terminado: avisar al motor para que encole el siguiente. */
-                fire_callback();
-            }
+        uint32_t need = rs_frames_needed();
+        if (rs_have < need) {
+            pull_frames(rs_buf + rs_have * 2, need - rs_have, channels);
+            rs_have = need;
         }
-        if (got < need)
-            memset(tmp + got, 0, need - got);
-
-        /* Pasar a estéreo 16 bits para el puerto. */
-        const int16_t *src = (const int16_t *)tmp;
-        if (channels == 1) {
-            for (int i = 0; i < SLES_GRAIN_FRAMES; i++) {
-                out[2 * i] = src[i];
-                out[2 * i + 1] = src[i];
-            }
-        } else {
-            memcpy(out, src, SLES_GRAIN_FRAMES * 2 * sizeof(int16_t));
-        }
+        rs_output(out);
 
         if (g_sink.port >= 0)
             sceAudioOutOutput(g_sink.port, out);
@@ -183,13 +238,9 @@ static void *audio_thread(void *arg) {
 static SLresult obj_realize(SLObjectItf self, SLboolean async) {
     (void)self; (void)async;
     if (g_sink.port < 0) {
-        int freq = g_sink.rate;
-        if (!sample_rate_ok(freq)) {
-            l_warn("sles: frecuencia %u no soportada por sceAudioOut, uso 48000 Hz", (unsigned)freq);
-            freq = 48000;
-        }
-        g_sink.port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, SLES_GRAIN_FRAMES, freq,
-                                          SCE_AUDIO_OUT_MODE_STEREO);
+        rs_init(g_sink.rate);
+        g_sink.port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, SLES_GRAIN_FRAMES,
+                                          SLES_OUT_RATE, SCE_AUDIO_OUT_MODE_STEREO);
         if (g_sink.port < 0) {
             l_error("sles: sceAudioOutOpenPort fallo: 0x%08x", g_sink.port);
             g_sink.port = -1;
