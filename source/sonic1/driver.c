@@ -40,6 +40,7 @@ typedef void (*fn_int2)(JNIEnvPtr, JObj, int32_t, int32_t);
 typedef void (*fn_key)(JNIEnvPtr, JObj, int32_t, int32_t);
 typedef void (*fn_touch)(JNIEnvPtr, JObj, float, float, int32_t);
 typedef void (*fn_id)(JNIEnvPtr, JObj, int32_t);
+typedef void (*fn_int1)(JNIEnvPtr, JObj, int32_t);
 
 static so_module *g_mod;
 static JNIEnvPtr  g_env;
@@ -67,8 +68,15 @@ static fn_void p_startup, p_create_audio, p_start_audio, p_frame, p_shutdown, p_
 static fn_key  p_key;
 static fn_touch p_touch_set, p_touch_add;
 static fn_id   p_touch_remove;
+/* Configuración que el Java hace en Sonic1Activity.onCreate / onWindowFocusChanged. */
+static fn_int1 p_set_language, p_set_online, p_set_mode;
+static fn_str  p_set_version;
 
 static int resolve_all(void) {
+    p_set_language = SYM("Sonic1Activity", "SetGameLanguage");
+    p_set_online  = SYM("Sonic1Activity", "SetEngineOnlineCapabilities");
+    p_set_mode    = SYM("Sonic1Activity", "SetGameMode");
+    p_set_version = SYM("Sonic1Activity", "SetVersionNumber");
     p_set_apk     = SYM("Sonic1View", "SetAPKDirectory");
     p_set_save    = SYM("Sonic1View", "SetSaveFileName");
     p_set_dims    = SYM("Sonic1View", "SetScreenDimensions");
@@ -99,6 +107,15 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
      * Sin esto el .so hace ldr [NULL] en Java_..._SetAPKDirectory (crash 0x98010864). */
     g_env = &jni;
 
+    /* Mismo orden que Sonic1Activity.onCreate:
+     *   SetGameLanguage(0) -> 0 = inglés. El Java elige el índice por el string de
+     *   recursos ("en" -> 0, "fr" -> 1, ..., "es" -> 4). Pendiente: leer el idioma del Vita.
+     *   SetVersionNumber("1.0.0") -> versionName del APK.
+     *   SetEngineOnlineCapabilities(0). */
+    if (p_set_language) p_set_language(g_env, g_activity, 0);
+    if (p_set_version)  p_set_version(g_env, g_activity, make_jstring("1.0.0"));
+    if (p_set_online)   p_set_online(g_env, g_activity, 0);
+
     /* data_file es el archivo RSDK completo (p. ej. DATA_PATH "Data.rsdk.xmf"). */
     p_set_apk(g_env, g_view, make_jstring(data_file), 0, 0);
     p_set_save(g_env, g_view, make_jstring(save_file));
@@ -109,7 +126,11 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
     if (p_create_audio) p_create_audio(g_env, g_renderer);
     if (p_start_audio)  p_start_audio(g_env, g_renderer);
 
-    l_success("Sonic 1: motor inicializado (borrador).");
+    /* Sonic1Activity.onWindowFocusChanged(true) llama SetGameMode(5) tras el surface.
+     * Sin esto el motor no entra al modo de juego (y no muestra los controles táctiles). */
+    if (p_set_mode) p_set_mode(g_env, g_activity, 5);
+
+    l_success("Sonic 1: motor inicializado.");
     return 0;
 }
 

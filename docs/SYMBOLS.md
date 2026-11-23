@@ -106,3 +106,11 @@ tanf
 | `Sonic1Activity_ShutdownRetroEngine` | `(env, obj)` | Libera render y audio. |
 
 Datos del APK: `assets/Data.rsdk.xmf` empieza con la cabecera `RSDKvBD`, así que el motor lo acepta con ese nombre. No hace falta renombrarlo a `data.rsdk`.
+
+## Secuencia de configuración (decodificada del bytecode de Sonic1Activity)
+
+- `onCreate`: `SetGameLanguage(idx)` con idx según el string de recursos: en=0, fr=1, it=2, de=3, es=4, ja=5, pt=6, ru=7, ko=8, zh-Hant=9, zh-Hans=10 (por defecto 0). Luego `SetVersionNumber(versionName)` y `SetEngineOnlineCapabilities(0)`.
+- `onWindowFocusChanged(true)`: `Sonic1View.onResume`, `setRenderMode(1)`, `SetGameMode(5)`. Con `false`: `setRenderMode(0)` y `onPause`.
+- `CheckGameResources` (no usado en el port): comprueba `/Android/data/com.sega.sonic1/files/Version.txt`; si no coincide llama `SetGameMode(7)` (ruta de copia de recursos, no implementada).
+- `ReadPowerAController`: `SetEngineGlobalVariable(8, ...)` solo con mando PowerA detectado (no implementado).
+- Audio: el `.so` importa de libOpenSLES `slCreateEngine`, `SL_IID_ENGINE`, `SL_IID_ANDROIDSIMPLEBUFFERQUEUE`, `SL_IID_BUFFERQUEUE`, `SL_IID_PLAY`, `SL_IID_VOLUME`. Implementado en `source/reimpl/sles.c` sobre `sceAudioOut` (sin verificar en hardware).
