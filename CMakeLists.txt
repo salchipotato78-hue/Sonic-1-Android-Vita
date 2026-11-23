@@ -23,7 +23,7 @@ set(PARSECOREPATH "$ENV{PARSECOREPATH}" CACHE STRING "vita-parse-core main.py")
 
 # Game-specific definitions
 set(DATA_PATH "ux0:data/sonic1/") # Path to data (with trailing /)
-set(SO_PATH "${DATA_PATH}libsonic1native.so") # Path to .so
+set(SO_PATH "${DATA_PATH}libRetroEngineJNI.so") # Path to .so
 add_definitions(-DDATA_PATH="${DATA_PATH}" -DSO_PATH="${SO_PATH}")
 
 # Port type
