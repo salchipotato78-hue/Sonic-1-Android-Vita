@@ -23,7 +23,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /usr/local/vitasdk
-          key: vitasdk-softfp-${{ hashFiles('.github/workflows/build.yml') }}
+          key: vitasdk-softfp-v1
 
       - name: Instalar VitaSDK-softfp con vdpm
         if: steps.vitasdk-cache.outputs.cache-hit != 'true'
