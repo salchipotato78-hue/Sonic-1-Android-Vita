@@ -1,9 +1,27 @@
 /*
  * Driver JNI para libsonic1native.so (Sonic 1, Android 2013).
  *
- * BORRADOR. Las firmas y el orden de las llamadas están sin verificar:
- * hay que confirmarlos desmontando las funciones Java_com_sega_sonic1_* del .so.
- * Todos los puntos marcados con TODO deben revisarse antes de probar en hardware.
+ * Firmas verificadas desensamblando las funciones Java_com_sega_sonic1_* (ARMv7):
+ *   Sonic1View_SetAPKDirectory(env, obj, jstring path, int32 (no usado), uint8 flag)
+ *       -> GetStringUTFChars(path) y AddToRSDKContainer(path, flag). El contenedor
+ *          abre el archivo, lee la cabecera "RSDK" y lo registra. Hay que pasar
+ *          el archivo de datos completo, no un directorio.
+ *   Sonic1View_SetSaveFileName(env, obj, jstring)
+ *   Sonic1View_SetScreenDimensions(env, obj, int32 w, int32 h)
+ *   Sonic1Renderer_StartupRetroEngine(env, obj)   (inicializa motor, render, audio, script)
+ *   Sonic1Renderer_CreateDeviceTextures(env, obj) (vacía; no hace nada)
+ *   Sonic1Renderer_CreateAudioBufferQueue(env, obj)
+ *   Sonic1Renderer_StartAudioBufferQueue(env, obj)
+ *   Sonic1Renderer_ProcessMainLoop(env, obj)      (un frame)
+ *   Sonic1Activity_SetKeyData(env, obj, int32 indice 0..7, int32 estado)  -- índice, no keycode de Android
+ *   Sonic1Activity_SetTouch(env, obj, float x, float y, int32 id)
+ *   Sonic1Activity_AddTouch(env, obj, float x, float y, int32 id)          -- supuesto, mismo patrón
+ *   Sonic1Activity_RemoveTouch(env, obj, int32 id)
+ *   Sonic1Activity_ClearTouchData(env, obj)
+ *   Sonic1Activity_ShutdownRetroEngine(env, obj)
+ *
+ * Pendiente de verificar: segundo argumento de SetKeyData, el significado del
+ * flag de SetAPKDirectory (se pasa 0), y el mapeo de botones Android -> índices.
  */
 #include "driver.h"
 
@@ -16,36 +34,38 @@ typedef void *JObj;
 typedef void *JStr;
 
 typedef void (*fn_str)(JNIEnvPtr, JObj, JStr);
+typedef void (*fn_apk)(JNIEnvPtr, JObj, JStr, int32_t, uint8_t);
 typedef void (*fn_void)(JNIEnvPtr, JObj);
-typedef void (*fn_int2)(JNIEnvPtr, JObj, int32_t, int32_t);                 /* TODO: confirmar */
-typedef void (*fn_key)(JNIEnvPtr, JObj, int32_t, int32_t);                  /* TODO: confirmar */
-typedef void (*fn_touch)(JNIEnvPtr, JObj, int32_t, float, float);           /* TODO: confirmar */
-typedef void (*fn_touch_id)(JNIEnvPtr, JObj, int32_t);                      /* TODO: confirmar */
+typedef void (*fn_int2)(JNIEnvPtr, JObj, int32_t, int32_t);
+typedef void (*fn_key)(JNIEnvPtr, JObj, int32_t, int32_t);
+typedef void (*fn_touch)(JNIEnvPtr, JObj, float, float, int32_t);
+typedef void (*fn_id)(JNIEnvPtr, JObj, int32_t);
 
 static so_module *g_mod;
-static JNIEnvPtr  g_env;      /* TODO: obtener de FalsoJNI */
+static JNIEnvPtr  g_env;      /* TODO: usar &jni de FalsoJNI */
 static JObj       g_view;     /* TODO: objeto fake de Sonic1View */
 static JObj       g_renderer; /* TODO: objeto fake de Sonic1Renderer */
 static JObj       g_activity; /* TODO: objeto fake de Sonic1Activity */
 
 #define SYM(cls, fn) ((void *)so_symbol(g_mod, "Java_com_sega_sonic1_" cls "_" fn))
 
-/* TODO: sustituir por la creación real de jstring con FalsoJNI (NewStringUTF). */
+/* TODO: el jstring real debe salir de FalsoJNI (NewStringUTF) porque el .so
+ * llama a GetStringUTFChars sobre él. Por ahora se pasa el char* directamente. */
 static JStr make_jstring(const char *s) { return (JStr)s; }
 
-static fn_str  p_set_apk_dir, p_set_save;
+static fn_apk  p_set_apk;
+static fn_str  p_set_save;
 static fn_int2 p_set_dims;
-static fn_void p_startup, p_create_tex, p_create_audio, p_start_audio, p_frame, p_shutdown;
+static fn_void p_startup, p_create_audio, p_start_audio, p_frame, p_shutdown, p_touch_clear;
 static fn_key  p_key;
 static fn_touch p_touch_set, p_touch_add;
-static fn_touch_id p_touch_remove, p_touch_clear;
+static fn_id   p_touch_remove;
 
 static int resolve_all(void) {
-    p_set_apk_dir = SYM("Sonic1View", "SetAPKDirectory");
+    p_set_apk     = SYM("Sonic1View", "SetAPKDirectory");
     p_set_save    = SYM("Sonic1View", "SetSaveFileName");
     p_set_dims    = SYM("Sonic1View", "SetScreenDimensions");
     p_startup     = SYM("Sonic1Renderer", "StartupRetroEngine");
-    p_create_tex  = SYM("Sonic1Renderer", "CreateDeviceTextures");
     p_create_audio = SYM("Sonic1Renderer", "CreateAudioBufferQueue");
     p_start_audio = SYM("Sonic1Renderer", "StartAudioBufferQueue");
     p_frame       = SYM("Sonic1Renderer", "ProcessMainLoop");
@@ -56,26 +76,26 @@ static int resolve_all(void) {
     p_touch_remove = SYM("Sonic1Activity", "RemoveTouch");
     p_touch_clear = SYM("Sonic1Activity", "ClearTouchData");
 
-    if (!p_set_apk_dir || !p_set_save || !p_set_dims || !p_startup || !p_frame) {
+    if (!p_set_apk || !p_set_save || !p_set_dims || !p_startup || !p_frame) {
         l_fatal("Faltan símbolos JNI obligatorios de libsonic1native.so (ver docs/SYMBOLS.md).");
         return -1;
     }
     return 0;
 }
 
-int sonic1_init(so_module *mod, const char *data_dir, const char *save_file) {
+int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
     g_mod = mod;
     if (resolve_all() < 0)
         return -1;
 
     /* TODO: crear g_view, g_renderer y g_activity con FalsoJNI. */
 
-    p_set_apk_dir(g_env, g_view, make_jstring(data_dir));
+    /* data_file es el archivo RSDK completo (p. ej. DATA_PATH "Data.rsdk.xmf"). */
+    p_set_apk(g_env, g_view, make_jstring(data_file), 0, 0);
     p_set_save(g_env, g_view, make_jstring(save_file));
-    p_set_dims(g_env, g_view, 480, 272); /* TODO: confirmar orden y resolución */
+    p_set_dims(g_env, g_view, 480, 272); /* TODO: confirmar resolución de la Vita */
 
     p_startup(g_env, g_renderer);
-    if (p_create_tex)   p_create_tex(g_env, g_renderer);
     if (p_create_audio) p_create_audio(g_env, g_renderer);
     if (p_start_audio)  p_start_audio(g_env, g_renderer);
 
@@ -93,15 +113,19 @@ void sonic1_shutdown(void) {
         p_shutdown(g_env, g_activity);
 }
 
-void sonic1_key(int32_t keycode, int32_t action) {
+void sonic1_key(int32_t index, int32_t state) {
+    /* index: 0..7 según el switch de SetKeyData. El mapeo desde ControlsAction
+     * y keycodes de Android aún no está verificado. */
     if (p_key)
-        p_key(g_env, g_activity, keycode, action); /* TODO: confirmar semántica de action */
+        p_key(g_env, g_activity, index, state);
 }
 
 void sonic1_touch(int32_t id, float x, float y, int32_t action) {
-    /* TODO: confirmar cuándo usar Set/Add/Remove. Esto es una suposición. */
+    /* TODO: confirmar qué valores de action corresponden a press/move/release. */
     if (action == 0 && p_touch_add)
-        p_touch_add(g_env, g_activity, id, x, y);
+        p_touch_add(g_env, g_activity, x, y, id);
     else if (action == 1 && p_touch_remove)
         p_touch_remove(g_env, g_activity, id);
+    else if (p_touch_set)
+        p_touch_set(g_env, g_activity, x, y, id);
 }

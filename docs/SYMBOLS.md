@@ -87,3 +87,22 @@ tanf
 - Nombres de datos referenciados: `Data/Game/GameConfig.bin`, `Data/Sprites/`, `Data/Stages/`, `Data/Music/`, `Data/SoundFX/`, `Data/Palettes/`, `Data/Animations/`, `Bytecode/GlobalCode.bin`.
 - Archivo de datos en el APK: `assets/Data.rsdk.xmf`. Verificar si el motor espera `data.rsdk`.
 - GL: vitaGL tiene `ffp.c` (pipeline fijo), así que las llamadas `gl*Pointer`/`glLoadMatrixf` tienen soporte parcial.
+
+## Firmas verificadas (desensamblado ARMv7)
+
+| Función | Firma inferida | Notas |
+|---|---|---|
+| `Sonic1View_SetAPKDirectory` | `(env, obj, jstring path, int32, uint8 flag)` | Llama a `GetStringUTFChars` y luego `AddToRSDKContainer(path, flag)`. `AddToRSDKContainer` abre el archivo y comprueba la cabecera `RSDK`. Por eso el `path` debe ser el archivo de datos, no un directorio. |
+| `Sonic1View_SetSaveFileName` | `(env, obj, jstring)` | Mismo patrón de `GetStringUTFChars`. |
+| `Sonic1View_SetScreenDimensions` | `(env, obj, int32 w, int32 h)` | Convierte a float internamente. |
+| `Sonic1Renderer_StartupRetroEngine` | `(env, obj)` | Inicializa tablas, config, dispositivo de render, audio y objetos nativos. Solo se ejecuta una vez. |
+| `Sonic1Renderer_CreateDeviceTextures` | `(env, obj)` | Vacía. |
+| `Sonic1Renderer_CreateAudioBufferQueue` / `StartAudioBufferQueue` | `(env, obj)` | |
+| `Sonic1Renderer_ProcessMainLoop` | `(env, obj)` | Un frame. |
+| `Sonic1Activity_SetKeyData` | `(env, obj, int32 index 0..7, int32 state)` | `index` es un índice de botón, no un keycode de Android. El segundo argumento no está verificado. |
+| `Sonic1Activity_SetTouch` / `AddTouch` | `(env, obj, float x, float y, int32 id)` | `AddTouch` sigue el mismo patrón según el desensamblado parcial. |
+| `Sonic1Activity_RemoveTouch` | `(env, obj, int32 id)` | |
+| `Sonic1Activity_ClearTouchData` | `(env, obj)` | |
+| `Sonic1Activity_ShutdownRetroEngine` | `(env, obj)` | Libera render y audio. |
+
+Datos del APK: `assets/Data.rsdk.xmf` empieza con la cabecera `RSDKvBD`, así que el motor lo acepta con ese nombre. No hace falta renombrarlo a `data.rsdk`.

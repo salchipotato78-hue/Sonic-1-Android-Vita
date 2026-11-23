@@ -25,7 +25,7 @@ int main() {
 
     gl_init();
 
-    if (sonic1_init(&so_mod, DATA_PATH, DATA_PATH "SData.bin") < 0) {
+    if (sonic1_init(&so_mod, DATA_PATH "Data.rsdk.xmf", DATA_PATH "SData.bin") < 0) {
         /* TODO: mostrar error al usuario con utils/dialog.h */
         sceKernelExitDeleteThread(0);
     }
@@ -41,7 +41,7 @@ int main() {
 
 #ifndef NDK_PORT
 void controls_handler_key(int32_t keycode, ControlsAction action) {
-    sonic1_key(keycode, (int32_t)action);
+    sonic1_key(keycode, (int32_t)action); /* keycode se reinterpreta como índice; ver docs/SYMBOLS.md */
 }
 
 void controls_handler_touch(int32_t id, float x, float y, ControlsAction action) {
