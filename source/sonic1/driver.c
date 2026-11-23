@@ -29,7 +29,7 @@
 #include <falso_jni/FalsoJNI.h>
 #include "utils/logger.h"
 
-typedef void *JNIEnvPtr;
+typedef JNIEnv *JNIEnvPtr;   /* JNIEnv de FalsoJNI: puntero a puntero a la tabla */
 typedef void *JObj;
 typedef void *JStr;
 
@@ -42,16 +42,23 @@ typedef void (*fn_touch)(JNIEnvPtr, JObj, float, float, int32_t);
 typedef void (*fn_id)(JNIEnvPtr, JObj, int32_t);
 
 static so_module *g_mod;
-static JNIEnvPtr  g_env;      /* TODO: usar &jni de FalsoJNI */
-static JObj       g_view;     /* TODO: objeto fake de Sonic1View */
-static JObj       g_renderer; /* TODO: objeto fake de Sonic1Renderer */
-static JObj       g_activity; /* TODO: objeto fake de Sonic1Activity */
+static JNIEnvPtr  g_env;
+/* Objetos fake: el .so no los usa como campos en las funciones que llamamos,
+ * pero deben ser no nulos. Si un crash apunta a un acceso sobre ellos, revisar. */
+static char       fake_view_obj[64];
+static char       fake_renderer_obj[64];
+static char       fake_activity_obj[64];
+static JObj       g_view     = fake_view_obj;
+static JObj       g_renderer = fake_renderer_obj;
+static JObj       g_activity = fake_activity_obj;
 
 #define SYM(cls, fn) ((void *)so_symbol(g_mod, "Java_com_sega_sonic1_" cls "_" fn))
 
-/* TODO: el jstring real debe salir de FalsoJNI (NewStringUTF) porque el .so
- * llama a GetStringUTFChars sobre él. Por ahora se pasa el char* directamente. */
-static JStr make_jstring(const char *s) { return (JStr)s; }
+/* jstring real: el .so llama a GetStringUTFChars sobre él, así que debe salir
+ * de la tabla de FalsoJNI (NewStringUTF), no ser un char* directo. */
+static JStr make_jstring(const char *s) {
+    return (JStr)(*g_env)->NewStringUTF(g_env, s);
+}
 
 static fn_apk  p_set_apk;
 static fn_str  p_set_save;
@@ -88,7 +95,9 @@ int sonic1_init(so_module *mod, const char *data_file, const char *save_file) {
     if (resolve_all() < 0)
         return -1;
 
-    /* TODO: crear g_view, g_renderer y g_activity con FalsoJNI. */
+    /* jni_init() ya corrió en soloader_init_all(), así que &jni es válido aquí.
+     * Sin esto el .so hace ldr [NULL] en Java_..._SetAPKDirectory (crash 0x98010864). */
+    g_env = &jni;
 
     /* data_file es el archivo RSDK completo (p. ej. DATA_PATH "Data.rsdk.xmf"). */
     p_set_apk(g_env, g_view, make_jstring(data_file), 0, 0);
