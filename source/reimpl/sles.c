@@ -41,7 +41,7 @@
  * suena agudo y rápido, así que los datos reales están a otra frecuencia.
  * Pon aquí la frecuencia correcta en Hz (p. ej. 44100, 32000 o 22050).
  * 0 = usar la frecuencia que declara el motor. */
-#define SLES_FORCE_SRC_RATE 44100u
+#define SLES_FORCE_SRC_RATE 22050u
 
 /* ---- IIDs: direcciones únicas, comparadas por puntero ---- */
 static const SLuint32 iid_tag_engine = 1, iid_tag_abq = 2, iid_tag_bq = 3, iid_tag_play = 4,
