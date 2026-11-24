@@ -23,10 +23,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /usr/local/vitasdk
-          key: vitasdk-softfp-v2
+          key: vitasdk-softfp-v3
 
       - name: Instalar VitaSDK-softfp con vdpm
         if: steps.vitasdk-cache.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git clone --depth 1 https://github.com/vitasdk-softfp/vdpm "$RUNNER_TEMP/vdpm"
           cd "$RUNNER_TEMP/vdpm"
