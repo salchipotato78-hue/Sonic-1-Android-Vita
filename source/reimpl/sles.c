@@ -42,6 +42,8 @@
  * Pon aquí la frecuencia correcta en Hz (p. ej. 44100, 32000 o 22050).
  * 0 = usar la frecuencia que declara el motor. */
 #define SLES_FORCE_SRC_RATE 22050u
+/* Canales de los datos PCM. 0 = usar los que declara el motor; 1 = mono; 2 = estéreo. */
+#define SLES_FORCE_CHANNELS 0u
 
 /* ---- IIDs: direcciones únicas, comparadas por puntero ---- */
 static const SLuint32 iid_tag_engine = 1, iid_tag_abq = 2, iid_tag_bq = 3, iid_tag_play = 4,
@@ -86,6 +88,7 @@ typedef struct SlesSink {
 } SlesSink;
 
 static SlesSink g_sink = { .port = -1, .playState = SL_PLAYSTATE_STOPPED };
+static unsigned g_decl_rate, g_decl_ch, g_decl_bits;   /* lo que declara el motor */
 
 /* ---- Vtables ---- */
 struct SlesObj { const struct SLObjectItf_ *vt; };
@@ -125,8 +128,12 @@ static void rs_init(uint32_t in_rate) {
     /* Diagnóstico: escribe la frecuencia pedida en un archivo legible desde VitaShell. */
     {
         char dbg[128];
-        int n = snprintf(dbg, sizeof(dbg), "motor=%u Hz salida=%u Hz step=%u\n",
-                         (unsigned)in_rate, (unsigned)SLES_OUT_RATE, (unsigned)rs_step);
+        int n = snprintf(dbg, sizeof(dbg),
+                         "declarado=%u Hz %u canales %u bits\n"
+                         "usado=%u Hz canales=%u step=%u salida=%u Hz\n",
+                         g_decl_rate, g_decl_ch, g_decl_bits,
+                         (unsigned)in_rate, (unsigned)g_sink.channels,
+                         (unsigned)rs_step, (unsigned)SLES_OUT_RATE);
         SceUID fd = sceIoOpen(DATA_PATH "audio_debug.txt",
                               SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
         if (fd >= 0) {
@@ -323,11 +330,16 @@ static SLresult engine_create_audio_player(SLEngineItf self, SLObjectItf *pPlaye
     if (fmt->formatType != SL_DATAFORMAT_PCM)
         return SL_RESULT_CONTENT_UNSUPPORTED;
 
+    g_decl_ch = fmt->numChannels;
+    g_decl_rate = fmt->samplesPerSec / 1000;   /* SLDataFormat_PCM usa milihercios */
+    g_decl_bits = fmt->bitsPerSample;
     g_sink.channels = fmt->numChannels ? fmt->numChannels : 2;
-    g_sink.rate = fmt->samplesPerSec / 1000;   /* SLDataFormat_PCM usa milihercios */
+    if (SLES_FORCE_CHANNELS)
+        g_sink.channels = SLES_FORCE_CHANNELS;
+    g_sink.rate = g_decl_rate;
     if (SLES_FORCE_SRC_RATE) {
         l_info("sles: frecuencia forzada %u Hz (el motor pidió %u Hz)",
-               (unsigned)SLES_FORCE_SRC_RATE, (unsigned)g_sink.rate);
+               (unsigned)SLES_FORCE_SRC_RATE, (unsigned)g_decl_rate);
         g_sink.rate = SLES_FORCE_SRC_RATE;
     }
     g_sink.bits = fmt->bitsPerSample;
