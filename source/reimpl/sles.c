@@ -37,6 +37,11 @@
 
 #define SLES_GRAIN_FRAMES 1024   /* frames por sceAudioOutOutput */
 #define SLES_QUEUE_MAX    8
+/* Frecuencia real de los datos PCM del juego. El motor declara 48000 Hz, pero el audio
+ * suena agudo y rápido, así que los datos reales están a otra frecuencia.
+ * Pon aquí la frecuencia correcta en Hz (p. ej. 44100, 32000 o 22050).
+ * 0 = usar la frecuencia que declara el motor. */
+#define SLES_FORCE_SRC_RATE 44100u
 
 /* ---- IIDs: direcciones únicas, comparadas por puntero ---- */
 static const SLuint32 iid_tag_engine = 1, iid_tag_abq = 2, iid_tag_bq = 3, iid_tag_play = 4,
@@ -320,6 +325,11 @@ static SLresult engine_create_audio_player(SLEngineItf self, SLObjectItf *pPlaye
 
     g_sink.channels = fmt->numChannels ? fmt->numChannels : 2;
     g_sink.rate = fmt->samplesPerSec / 1000;   /* SLDataFormat_PCM usa milihercios */
+    if (SLES_FORCE_SRC_RATE) {
+        l_info("sles: frecuencia forzada %u Hz (el motor pidió %u Hz)",
+               (unsigned)SLES_FORCE_SRC_RATE, (unsigned)g_sink.rate);
+        g_sink.rate = SLES_FORCE_SRC_RATE;
+    }
     g_sink.bits = fmt->bitsPerSample;
     if (g_sink.bits != 16)
         l_warn("sles: bitsPerSample=%u, solo se soportan 16 bits", (unsigned)g_sink.bits);
