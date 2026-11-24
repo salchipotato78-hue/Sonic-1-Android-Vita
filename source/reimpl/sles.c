@@ -41,7 +41,7 @@
  * suena agudo y rápido, así que los datos reales están a otra frecuencia.
  * Pon aquí la frecuencia correcta en Hz (p. ej. 44100, 32000 o 22050).
  * 0 = usar la frecuencia que declara el motor. */
-#define SLES_FORCE_SRC_RATE 22050u
+#define SLES_FORCE_SRC_RATE 0u
 /* Canales de los datos PCM. 0 = usar los que declara el motor; 1 = mono; 2 = estéreo. */
 #define SLES_FORCE_CHANNELS 0u
 
@@ -264,7 +264,10 @@ static void *audio_thread(void *arg) {
 
 /* ---- Objeto Player / Engine ---- */
 static SLresult obj_realize(SLObjectItf self, SLboolean async) {
-    (void)self; (void)async;
+    (void)async;
+    /* El motor también se realiza: solo el player debe abrir el sink, cuando ya conoce el formato. */
+    if (self != (SLObjectItf)&g_player_obj)
+        return SL_RESULT_SUCCESS;
     if (g_sink.port < 0) {
         rs_init(g_sink.rate);
         g_sink.port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, SLES_GRAIN_FRAMES,
